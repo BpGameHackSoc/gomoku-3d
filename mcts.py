@@ -1,6 +1,9 @@
 import datetime
 from model import Color
 import numpy as np
+import math
+
+C = math.sqrt(2)
 
 class MCTS():
     def __init__(self, model, **kwargs):
@@ -86,7 +89,7 @@ class Node():
         self.is_terminal = False
 
     def value(self, color):
-        return self.Q(color) + self.p / self.N
+        return self.Q(color) + C * self.p * math.sqrt(self.parent.N) / self.N
 
     def visited(self):
         return not self.N == 1
