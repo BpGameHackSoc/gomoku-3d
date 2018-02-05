@@ -33,7 +33,7 @@ class Gomoku():
         sum1 = layers[:].sum(axis=1).flatten()
         sum2 = layers[:].sum(axis=2).flatten()
         sum3 = layers.reshape(-1,16)[:,3:13:3].sum(axis=1)
-        sum4 = layers.reshape(-1,16)[:,0:16:6].sum(axis=1)
+        sum4 = layers.reshape(-1,16)[:,0:16:5].sum(axis=1)
         s = np.concatenate((sum1, sum2, sum3, sum4))
         if (s == 4).any():
             self.winner = Color.BLUE
