@@ -22,7 +22,7 @@ class Memory():
         self.memory.extend(array)
     def sample(self):
         n = min(self.batch_size, len(self.memory))
-        return random.sample(self.memory, n)
+        return random.sample(list(self.memory), n)
     def clear(self):
         self.memory.clear()
 
