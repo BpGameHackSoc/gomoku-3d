@@ -89,6 +89,8 @@ class Node():
         self.is_terminal = False
 
     def value(self, color):
+        if self.parent is None:
+            return self.Q(color)
         return self.Q(color) + C * self.p * math.sqrt(self.parent.N) / self.N
 
     def visited(self):

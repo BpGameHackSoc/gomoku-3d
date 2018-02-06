@@ -1,7 +1,9 @@
 import numpy as np
 import keras
-from keras.layers import Conv2D, Dense, Flatten, LeakyReLU, Input
+from keras.layers import Activation, Conv2D, Dense, Flatten, Input
 from keras.models import Sequential, load_model, Model
+from keras.layers.merge import Add
+from keras.layers.normalization import BatchNormalization
 from keras.initializers import RandomUniform
 from collections import deque
 import math
@@ -84,36 +86,80 @@ class Teacher():
 
 class Brain():
     def __init__(self, model_path=None):
+
+        self.settings = {}
+        self.settings['filter_n'] = 128
+        self.settings['kernel_size'] = 3
+        self.settings['res_layer_n'] = 3
+        self.settings['init'] = RandomUniform(minval=0.0001, maxval=0.0002, seed=None)
+
         if model_path is None:
             self.new_model()
         else:
             self.load(model_path)
 
     def new_model(self):
-        init = RandomUniform(minval=0.0001, maxval=0.0002, seed=None)
-
         inp = Input((28, 4, 4))
-        conv = Conv2D(256, kernel_size=(3,3), padding='same', activation='relu',
-                           data_format='channels_first', kernel_initializer=init)(inp)
-        conv2 = Conv2D(128, kernel_size=(3,3), padding='same', activation='relu',
-                            data_format='channels_first', kernel_initializer=init)(conv)
-        flat = Flatten()(conv2)
-
-        value1 = Dense(256, kernel_initializer=init, activation='tanh')(flat)
-        value2 = Dense(256, kernel_initializer=init, activation='tanh')(value1)
-        value3 = Dense(256, kernel_initializer=init, activation='tanh')(value2)
-
-        action1 = Dense(256, kernel_initializer=init, activation='sigmoid')(flat)
-        action2 = Dense(256, kernel_initializer=init, activation='sigmoid')(action1)
-        action3 = Dense(256, kernel_initializer=init, activation='sigmoid')(action2)
-
-        out1 = Dense(1, activation="tanh", name="v")(value3)
-        out2 = Dense(16, activation="softmax", name="p")(action3)
-
-        model = Model(inp, [out1,out2])
+        x = self.conv_layer(inp, 'firstconv_')
+        for i in range(self.settings['res_layer_n']):
+            x = self.res_layer(x, i+1)
+        value = self.value_head(x)
+        policy = self.policy_head(x)
+        model = Model(inp, [value, policy])
         model.compile(loss=['mean_squared_error', 'categorical_crossentropy'],
                       optimizer='adam')
         self.model = model
+
+
+    def conv_layer(self, x, prefix, suffix='', original_x=None):
+        x = Conv2D(
+            filters=self.settings['filter_n'],
+            kernel_size=self.settings['kernel_size'],
+            padding='same',
+            strides=1,
+            data_format='channels_first',
+            kernel_initializer=self.settings['init'],
+            name=prefix+"_conv"+suffix
+        )(x)
+        x = BatchNormalization(axis=1, name=prefix+"_batchnorm"+suffix)(x)
+        if not original_x is None:
+            x = Add(name=prefix+"_sum"+suffix)([original_x, x])
+        x = Activation("relu", name=prefix+"_relu"+suffix)(x)
+        return x
+
+    def res_layer(self, x, index):
+        original_x = x
+        prefix = 'res_' + str(index)
+        x = self.conv_layer(x, prefix, '_1')
+        x = self.conv_layer(x, prefix, '_2', original_x)
+        return x
+
+    def value_head(self, x):
+        kernel_size = self.settings['kernel_size']
+        filter_n = self.settings['filter_n']
+        self.settings['filter_n'] = 1
+        self.settings['kernel_size'] = 1
+        x = self.conv_layer(x, 'value_')
+        self.settings['filter_n'] = filter_n
+        self.settings['filter_n'] = kernel_size
+        x = Flatten()(x)
+        x = Activation('relu')(x)
+        x = Dense(1)(x)
+        x = Activation('tanh')(x)
+        return x
+
+    def policy_head(self, x):
+        kernel_size = self.settings['kernel_size']
+        filter_n = self.settings['filter_n']
+        self.settings['filter_n'] = 2
+        self.settings['kernel_size'] = 1
+        x = self.conv_layer(x, 'policy_')
+        self.settings['filter_n'] = filter_n
+        self.settings['filter_n'] = kernel_size
+        x = Flatten()(x)
+        x = Dense(16)(x)
+        x = Activation('sigmoid')(x)
+        return x
 
     def learn(self, states, values, probabilities):
         states = np.array(states)
@@ -132,117 +178,3 @@ class Brain():
         self.model = load_model(path)
     def __random_string(self, n):
         return ''.join(np.random.choice(list(string.ascii_lowercase+ string.digits), n))
-
-
-# class Teacher():
-#     def __init__(self, model_path=None, T_start = 3, T_end = 0.1):
-#         self.student = Student(model_path, insight=True)
-#         self.T_start = T_start
-#         self.T_end = T_end
-#     def teach(self, no_of_games, verbose=0):
-#         for game_index in range(no_of_games):
-#             gomoku = Gomoku()
-#             states = [gomoku.get_state()]
-#             values = [self.student.model.predict(np.array(states)).flatten()[0]]
-#             while not gomoku.is_over():
-#                 T = self.__temp(game_index, no_of_games, self.T_start, self.T_end)
-#                 gomoku, move, expected_value = self.student.move(gomoku, learn=True, T=T)
-#                 states.append(gomoku.get_state())
-#                 values.append(expected_value)
-#             states = np.array(states)
-#             values = np.array(values)
-#             outcome = gomoku.winner.value
-#             values = self.__regrade(values, outcome)
-#             to_learn = list(zip(states.tolist(), values.tolist()))
-#             self.student.save_knowledge(to_learn)
-#             self.student.learn()
-#             if not verbose == 0:
-#                 if game_index % verbose == 0:
-#                     print('Game ' + str(game_index) + '...')
-#         save_name = self.__random_string(15)
-#         self.student.save('models/' + save_name + '.h5')
-
-        
-            
-                
-#     def __temp(self, x, no_of_games, start, end):
-#         d = math.log(start)
-#         k = -math.log10(end) + 1
-#         return np.exp(d-(x/no_of_games*k*d))
-    
-#     def __regrade(self, x, target, LAMDA=0.3):
-#         x[-1] = target
-#         for i in reversed(range(x.size-1)):
-#                 x[i] = (1-LAMDA) * x[i] + LAMDA * x[i+1]
-#         return x
-    
-#     def __random_string(self, n):
-#         return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
-
-
-# class Student():
-#     def __init__(self, model_path=None, insight=False):
-#         if model_path is None:
-#             self.new_model()
-#         else:
-#             self.load(model_path)
-#         self.memory = Memory(120, 40)
-#         self.insight=insight
-#     def new_model(self):
-#         init = RandomUniform(minval=0.0001, maxval=0.0002, seed=None)
-#         a = LeakyReLU(alpha=0.3)
-#         model = Sequential()
-#         model.add(Conv2D(256, kernel_size=(3,3), padding='same', data_format='channels_first', input_shape=(28, 4, 4), kernel_initializer=init))
-#         model.add(LeakyReLU(alpha=.03))
-#         model.add(Flatten())
-#         model.add(Dense(512, kernel_initializer=init))
-#         model.add(LeakyReLU(alpha=.03))
-#         model.add(Dense(51, kernel_initializer=init))
-#         model.add(LeakyReLU(alpha=.03))
-#         model.add(Dense(1, activation='tanh'))
-#         model.compile(optimizer='rmsprop', loss='mean_squared_error')
-#         self.model = model
-    
-#     def move(self, gomoku, learn=False, T=1):
-#         child_states = []
-#         moves = []
-#         valid_moves = gomoku.valid_moves()
-#         for move in valid_moves:
-#             child = gomoku.move(move)
-#             child_states.append(child)
-#             moves.append(move)
-#         child_states = np.array(child_states)
-#         predictions = (self.model.predict(child_states) * gomoku.turn.value).flatten()
-#         probabilities = self.__softmax(predictions, T)
-#         if not learn:
-#             if self.insight:
-#                 print(predictions)
-#             index = predictions.argmax()
-#             chosen_move = moves[index]
-#             value = predictions[index]
-#         else:
-#             possibilities = np.arange(probabilities.size)
-#             index = np.random.choice(possibilities, p=probabilities)
-#             chosen_move = moves[index]
-#             value = predictions[index]
-#         value *= gomoku.turn.value
-#         g = gomoku.move(chosen_move)
-#         return g, chosen_move, value
-    
-#     def save_knowledge(self, classes):
-#         self.memory.add(classes)
-    
-#     def learn(self):
-#         samples = self.memory.sample()
-#         x = [a[0] for a in samples]
-#         y = [a[1] for a in samples]
-#         self.model.train_on_batch(x, y)
-        
-#     def __softmax(self, x, T=1):
-#         e_x = np.exp((x - np.max(x))/T)
-#         return e_x / e_x.sum(axis=0)
-    
-#     def save(self, path):
-#         self.model.save(path)
-#     def load(self, path):
-#         self.model = load_model(path)
