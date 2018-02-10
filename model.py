@@ -63,22 +63,25 @@ class Gomoku():
         return x
 
     def get_states_in_all_rotations(self):
-        gomokus = self.get_rotations()
-        states = np.zeros((4,28,4,4))
-        for i in range(4):
+        gomokus = self.get_permutations()
+        states = np.zeros((8,28,4,4))
+        for i in range(8):
             states[i] = gomokus[i].get_state()
         return states
 
-    def get_rotations(self):
+    def get_permutations(self):
         gomokus = []
         for i in range(4):
-            gomokus.append(self.rotate(i))
+            gomokus.append(self.rotate(i, False))
+            gomokus.append(self.rotate(i, True))
         return gomokus
 
-    def rotate(self, half_radians):
+    def rotate(self, half_radians, flip):
         b = self.board.copy()
         for i in range(4):
             b[i] = np.rot90(b[i], half_radians)
+            if flip:
+                b[i] = b[i].transpose()
         return Gomoku(board=b, turn=self.turn)
     
     def get_state(self):

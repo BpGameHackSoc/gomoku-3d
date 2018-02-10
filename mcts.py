@@ -12,20 +12,38 @@ class MCTS():
         self.model = model
         self.time_limit = datetime.timedelta(seconds=self.seconds)
 
-    def search(self, gomoku):
-        self.root = Node(gomoku, None, None, 0)
-        self.root.visit(self.model, noise=self.learning)
+    def search(self, gomoku, root=None):
+        if root is None:
+            self.root = Node(gomoku, None, None, 0)
+            self.root.visit(self.model, noise=False)
+        else:
+            #self.root = Node(gomoku, None, None, 0)
+            self.root = root
+            self.root.parent = None
+        
         begin = datetime.datetime.utcnow()
         while datetime.datetime.utcnow() - begin < self.time_limit:
             self.run_one()
         return self.root
 
     def choose_best_child(self, parent_node):
-        best_node = parent_node.children[0]
+        ranks = self.rank_children(self.root).astype(float)
+        ranks[:,1] = ranks[:,1] ** 2
+        ranks[:,1] /= ranks[:,1].sum()
+        if self.learning:
+            move = int(np.random.choice(ranks[:,0],1,p=ranks[:,1]))
+        else:
+            move = ranks[:,0][ranks[:,1].argmax()]
+
         for child in parent_node.children:
-            if child.N > best_node.N:
-                best_node = child
-        return best_node
+            if child.move == move:
+                return child
+
+        print('---------')
+        print(parent_node.board)
+        print(i)
+        print(ranks)
+        raise Exception('The move was not found in children.')
 
     def run_one(self):
         last_node = self.simulation()
@@ -58,7 +76,6 @@ class MCTS():
         ranks = np.column_stack((np.arange(16)+1, np.zeros(16)))
         for i, child in enumerate(node.children):
             ranks[child.move-1, 1] = child.N
-        ranks[:,1] /= ranks[:,1].sum()
         return ranks
 
     def stats(self):
